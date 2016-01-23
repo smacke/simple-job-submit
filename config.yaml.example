@@ -1,0 +1,13 @@
+managers:
+    foo:
+        host: foo
+        root: ~/code/project
+        pipe: jobs.pipe
+    bar-1:
+        host: bar
+        root: ~/code/project-1
+        pipe: jobs.pipe
+    bar-2:
+        host: bar
+        root: ~/code/project-2
+        pipe: jobs.pipe
