@@ -44,7 +44,7 @@ def run_jobs():
         jobs_cv.release()
 
         subprocess.call(shlex.split('git pull'))
-        subprocess.Popen(shlex.split(job))
+        subprocess.Popen(job, shell=True)
 
 def handle_commands():
     while True:
