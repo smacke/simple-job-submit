@@ -7,13 +7,14 @@ import threading
 import subprocess
 import shlex
 import signal
+import json
 
 pipe_name = 'jobs.pipe'
 max_jobs = 4
 jobs_running = 0
 jobs = []
 jobs_cv = threading.Condition(threading.Lock())
-commands = Queue.Queue()
+commands_q = Queue.Queue()
 
 saturated = threading.Condition(threading.Lock())
 
@@ -48,26 +49,30 @@ def run_jobs():
 
 def handle_commands():
     while True:
-        cmd, args = commands.get(block=True)
-        if cmd=="job":
+        command = commands_q.get(block=True)
+        if command['type']=="job":
             jobs_cv.acquire()
-            jobs.append(args)
+            jobs.append(command['job'])
             jobs_cv.notify()
             jobs_cv.release()
-        elif cmd=="ls":
+        elif command['type']=="ls":
             jobs_cv.acquire()
             print jobs # TODO: find a way to return feedback
             jobs_cv.release()
         else:
             print 'Error: unknown command'
 
-def receive_commands():
+def receive_commands_forever():
     while True:
         try:
             with open(pipe_name, 'r') as pipein:
-                command_components = pipein.read().split(':')
-                for i in xrange(0,len(command_components)-1,2):
-                    commands.put((command_components[i], command_components[i+1]))
+                commands = pipein.read().split('\n')
+                print commands
+                for command in commands:
+                    print command
+                    if len(command) > 0:
+                        commands_q.put(json.loads(command))
+
         except IOError as e:
             # restart the system call after handling SIGCHILD
             pass
@@ -88,7 +93,7 @@ def main():
     job_thread.daemon=True
     job_thread.start()
 
-    receive_commands()
+    receive_commands_forever()
 
 
 if __name__=="__main__":
