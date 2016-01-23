@@ -5,12 +5,14 @@ import time
 import Queue
 import threading
 import subprocess
+import shlex
 import signal
 
 pipe_name = 'jobs.pipe'
 max_jobs = 4
 jobs_running = 0
-jobs = Queue.Queue()
+jobs = []
+jobs_cv = threading.Condition(threading.Lock())
 commands = Queue.Queue()
 
 saturated = threading.Condition(threading.Lock())
@@ -26,23 +28,36 @@ def sigchld_handler(signum, frame):
 
 def run_jobs():
     global jobs_running
+    global jobs
     while True:
         saturated.acquire()
         while jobs_running == max_jobs:
             saturated.wait()
-        jobs_running += 1
+        jobs_running += 2 # increment by two since the 'git pull' will decrement
         saturated.release()
 
-        job = jobs.get(block=True)
-        subprocess.call(["echo",  job])
+        jobs_cv.acquire()
+        while len(jobs)==0:
+            jobs_cv.wait()
+        job = jobs[0]
+        jobs = jobs[1:]
+        jobs_cv.release()
+
+        subprocess.call(shlex.split('git pull'))
+        subprocess.Popen(shlex.split(job))
 
 def handle_commands():
     while True:
         cmd, args = commands.get(block=True)
         if cmd=="job":
-            jobs.put(args)
+            jobs_cv.acquire()
+            jobs.append(args)
+            jobs_cv.notify()
+            jobs_cv.release()
         elif cmd=="ls":
-            print jobs # TODO: make this work
+            jobs_cv.acquire()
+            print jobs # TODO: find a way to return feedback
+            jobs_cv.release()
         else:
             print 'Error: unknown command'
 
