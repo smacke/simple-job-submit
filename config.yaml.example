@@ -1,13 +1,16 @@
 managers:
-    foo:
+    manager-1:
         host: foo
         root: ~/code/project
         pipe: jobs.pipe
-    bar-1:
+        password: pass
+    manager-2:
         host: bar
+        port: 9999
         root: ~/code/project-1
         pipe: jobs.pipe
-    bar-2:
+    manager-3:
         host: bar
+        port: 9999
         root: ~/code/project-2
         pipe: jobs.pipe
