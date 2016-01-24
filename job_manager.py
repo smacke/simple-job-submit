@@ -49,6 +49,13 @@ def run_jobs():
     global jobs_running
     global jobs
     while True:
+        saturated.acquire()
+        while jobs_running >= max_jobs:
+            saturated.wait()
+        saturated.release()
+        # wait until we actually get a job off the queue
+        # before we incrmenet jobs_running
+
         jobs_cv.acquire()
         while len(jobs)==0:
             jobs_cv.wait()
@@ -57,8 +64,6 @@ def run_jobs():
         jobs_cv.release()
 
         saturated.acquire()
-        while jobs_running >= max_jobs:
-            saturated.wait()
         jobs_running += 1
         saturated.release()
 
@@ -67,14 +72,18 @@ def run_jobs():
 def handle_submit_job(command):
     global current_job_id
     jobs_cv.acquire()
-    jobs.append(command)
     jid = current_job_id
+    command['job_id'] = jid
+    jobs.append(command)
     current_job_id += 1
     jobs_cv.notify()
     jobs_cv.release()
     ret = {'code': 0, 'status': 'OK', 'job_id': jid, 'message': 'job submitted successfully'}
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
+    jobs_cv.acquire()
+    del command['port']
+    jobs_cv.release()
 
 def handle_get_status(command):
     global max_jobs
@@ -103,8 +112,27 @@ def handle_configure(command):
         saturated.release()
     else:
         ret['code'] = 2
-        ret['status'] = error
+        ret['status'] = 'error'
         ret['message'] = 'invalid new max jobs running (must be >= 0)'
+    with open(command['port'], 'w') as f:
+        f.write(json.dumps(ret))
+
+def handle_cancel(command):
+    global jobs
+    cancel_id = command['job_to_cancel']
+    success = False
+    jobs_cv.acquire()
+    for i, job in enumerate(jobs):
+        if job['job_id'] == cancel_id:
+            jobs = jobs[:i] + jobs[i+1:]
+            success = True
+            break
+    jobs_cv.release()
+
+    if success:
+        ret = {'code': 0, 'status': 'OK', 'job_cancelled': job}
+    else:
+        ret = {'code': 3, 'status': 'error', 'requested_job_to_cancel': cancel_id, 'message': 'requested cancellation not found in queue'}
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
 
@@ -117,6 +145,7 @@ def handle_commands():
     handlers = {'job': handle_submit_job,
                 'status': handle_get_status,
                 'configure': handle_configure,
+                'cancel': handle_cancel,
                 }
     while True:
         command = commands_q.get(block=True)

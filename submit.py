@@ -115,6 +115,16 @@ def handle_configure(cmd_json, args, parser, config, suppress_output=False):
     cmd_json['max_jobs'] = args.max_jobs
     return submit(cmd_json, args, parser, config, suppress_output)
 
+def handle_cancel(cmd_json, args, parser, config, suppress_output=False):
+    cmd_json['type'] = 'cancel'
+    if args.jid_cancel is None:
+        parser.error("need to specify job id to cancel")
+    if args.manager == 'any' or args.manager == 'all':
+        # TODO: make job ids unique across all managers, then maybe 'any' makes sense
+        parser.error("job cancellation requires specific manager")
+    cmd_json['job_to_cancel'] = args.jid_cancel
+    return submit(cmd_json, args, parser, config, suppress_output)
+
 def main(args):
     with open(args.config) as f:
         config = yaml.safe_load(f)
@@ -126,12 +136,17 @@ def main(args):
     command_type_handle[args.type](cmd_json, args, parser, config)
 
 if __name__=="__main__":
-    command_type_handle = {'job': handle_job, 'status': handle_status, 'configure': handle_configure}
+    command_type_handle = {'job': handle_job, 
+            'status': handle_status, 
+            'configure': handle_configure,
+            'cancel': handle_cancel,
+            }
     parser = argparse.ArgumentParser(description="Submit job to job manager.")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('type', help="type of command to run -- either job (submit job), status (stat current jobs), or configure (set manager parameters)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is job, the command to run as a job")
+    parser.add_argument('--jid', dest='jid_cancel', type=int, default=None, help="if type is cancel, which job to cancel")
     parser.add_argument('--command-file', dest='cmd_file', default=None, help="if type is job, the newline-separated file of commands to run")
     parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, default=None, help="if type is configure, new maximum # of jobs running")
     parser.add_argument('--git', dest='git', default=False, action='store_true', help="whether to do a 'git pull' before executing commands")
