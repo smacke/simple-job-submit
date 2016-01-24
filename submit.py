@@ -100,6 +100,8 @@ def handle_job(cmd_json, args, parser, config, suppress_output=False):
 
 def handle_status(cmd_json, args, parser, config, suppress_output=False):
     cmd_json['type'] = 'status'
+    if args.manager == 'any':
+        parser.error("this doesn't make sense; stating should be specific")
     return submit(cmd_json, args, parser, config, suppress_output)
 
 def handle_configure(cmd_json, args, parser, config, suppress_output=False):
