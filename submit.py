@@ -11,21 +11,23 @@ import re
 errors = {'eexists': 2}
 
 
-def submit(cmd_json, args, parser, config):
+def submit(cmd_json, args, parser, config, suppress_output=False):
     if args.manager == 'all':
         for manager in config['managers']:
             args.manager = manager
+            print ('[%s]' % args.manager),
             submit(cmd_json, args, parser, config)
         return
     elif args.manager == 'any':
         saturated_but_not_erroring = None
         for manager in config['managers']:
             args.manager = manager
-            status = handle_list(cmd_json, args, parser, config)
+            status = handle_list(cmd_json, args, parser, config, suppress_output=True)
             if status['code'] > 0:
                 sys.stderr.write("Warning: manager %s had error during listing: %s" % (args.manager, status['message']))
                 continue
             if status['jobs_running'] < status['max_jobs_running']:
+                print ('[%s]' % args.manager),
                 return handle_job(cmd_json, args, parser, config)
                 break
             else:
@@ -33,6 +35,7 @@ def submit(cmd_json, args, parser, config):
         if saturated_but_not_erroring == None:
             raise Exception("all managers have errors, can't run job!")
         args.manager = saturated_but_not_erroring
+        print ('[%s]' % args.manager),
         return handle_job(cmd_json, args, parser, config)
 
     settings = config['managers'][args.manager]
@@ -60,7 +63,7 @@ rm %s # clear the port for later use
         tocall = "ssh -A %s '%s'" % (host, script)
         proc = subprocess.Popen(tocall, shell=True, stdout=subprocess.PIPE)
         procout, procerr = proc.communicate()
-        print procout
+        if not suppress_output: print procout
         ret = proc.returncode
         if ret == 0:
             return json.loads(procout)
@@ -70,31 +73,32 @@ rm %s # clear the port for later use
         else:
             raise Exception("Trying to submit command, got error code %d" % ret)
 
-def handle_job(cmd_json, args, parser, config):
+def handle_job(cmd_json, args, parser, config, suppress_output=False):
+    cmd_json['type'] = 'job'
     if args.cmd is None and args.cmd_file is None:
         parser.error("command type %s requires either cmd or file" % args.type)
     if args.cmd is not None:
         cmd_json['run'] = args.cmd
-        submit(cmd_json, args, parser, config)
+        submit(cmd_json, args, parser, config, suppress_output)
     if args.cmd_file is not None:
         cmd_json['run'] = args.cmd
         with open(args.cmd_file, 'r') as f:
             for line in f:
                 cmd_json['run'] = line
-                submit(cmd_json, args, parser, config)
+                submit(cmd_json, args, parser, config, suppress_output)
 
-def handle_list(cmd_json, args, parser, config):
+def handle_list(cmd_json, args, parser, config, suppress_output=False):
     cmd_json['type'] = 'list'
-    return submit(cmd_json, args, parser, config)
+    return submit(cmd_json, args, parser, config, suppress_output)
 
-def handle_configure(cmd_json, args, parser, config):
+def handle_configure(cmd_json, args, parser, config, suppress_output=False):
     cmd_json['type'] = 'configure'
     if args.manager == 'any':
         parser.error("this doesn't make sense; configuration should be specific")
     if args.max_jobs is None:
         parser.error("Configure command needs to specify new max jobs")
     cmd_json['max_jobs'] = args.max_jobs
-    return submit(cmd_json, args, parser, config)
+    return submit(cmd_json, args, parser, config, suppress_output)
 
 def main(args):
     with open(args.config) as f:
