@@ -59,6 +59,14 @@ def run_jobs():
         jobs_cv.acquire()
         while len(jobs)==0:
             jobs_cv.wait()
+
+        if jobs_running >= max_jobs:
+            # edge case -- a config command could have come in
+            # setting max jobs smaller, in which case we need
+            # to respect that
+            jobs_cv.release()
+            continue
+
         job = jobs[0]
         jobs = jobs[1:]
         jobs_cv.release()
@@ -67,23 +75,19 @@ def run_jobs():
         jobs_running += 1
         saturated.release()
 
-        subprocess.Popen(job['run'], shell=True)
+        subprocess.Popen(job['job'], shell=True)
 
 def handle_submit_job(command):
     global current_job_id
     jobs_cv.acquire()
     jid = current_job_id
-    command['job_id'] = jid
-    jobs.append(command)
+    jobs.append({'job': command['run'], 'job_id': jid})
     current_job_id += 1
     jobs_cv.notify()
     jobs_cv.release()
     ret = {'code': 0, 'status': 'OK', 'job_id': jid, 'message': 'job submitted successfully'}
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
-    jobs_cv.acquire()
-    del command['port']
-    jobs_cv.release()
 
 def handle_get_status(command):
     global max_jobs
@@ -91,9 +95,11 @@ def handle_get_status(command):
     global jobs
     jobs_cv.acquire()
     queued = str(jobs)
+    num_queued = len(jobs)
     jobs_cv.release()
     running = jobs_running
-    ret = {'code': 0, 'status': 'OK', 'jobs_running': running, 'jobs_queued': queued, 'max_jobs_running': max_jobs}
+    ret = {'code': 0, 'status': 'OK', 'jobs_running': running, 'num_jobs_queued': num_queued,
+            'jobs_queued': queued, 'max_jobs_running': max_jobs}
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
 
