@@ -8,10 +8,12 @@ import subprocess
 import shlex
 import signal
 import json
+import argparse
 
 pipe_name = 'jobs.pipe'
 max_jobs = 4
 jobs_running = 0
+
 jobs = []
 current_job_id = 0
 jobs_cv = threading.Condition(threading.Lock())
@@ -137,7 +139,11 @@ def receive_commands_forever():
             # restart the system call after handling SIGCHILD
             pass
 
-def main():
+def main(args):
+    global pipe_name
+    global max_jobs
+    pipe_name = args.pipe_name
+    max_jobs = args.max_jobs
     signal.signal(signal.SIGCHLD, sigchld_handler)
     try:
         os.mkfifo(pipe_name)
@@ -157,4 +163,8 @@ def main():
 
 
 if __name__=="__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Manage job submissions")
+    parser.add_argument('--max-jobs-running', dest='max_jobs', required=True)
+    parser.add_argument('--pipe-name', dest='pipe_name', default='jobs.pipe')
+    args = parser.parse_args()
+    main(args)

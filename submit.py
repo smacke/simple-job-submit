@@ -11,14 +11,29 @@ import re
 errors = {'eexists': 2}
 
 
-def submit(args, cmd_json, config):
+def submit(cmd_json, args, parser, config):
     if args.manager == 'all':
         for manager in config['managers']:
             args.manager = manager
-            submit(args, cmd_json, config)
+            submit(cmd_json, args, parser, config)
         return
     elif args.manager == 'any':
-        raise Exception("not implemented yet")
+        saturated_but_not_erroring = None
+        for manager in config['managers']:
+            args.manager = manager
+            status = handle_list(cmd_json, args, parser, config)
+            if status['code'] > 0:
+                sys.stderr.write("Warning: manager %s had error during listing: %s" % (args.manager, status['message']))
+                continue
+            if status['jobs_running'] < status['max_jobs_running']:
+                return handle_job(cmd_json, args, parser, config)
+                break
+            else:
+                saturated_but_not_erroring = manager
+        if saturated_but_not_erroring == None:
+            raise Exception("all managers have errors, can't run job!")
+        args.manager = saturated_but_not_erroring
+        return handle_job(cmd_json, args, parser, config)
 
     settings = config['managers'][args.manager]
     host = settings['host']
@@ -30,10 +45,9 @@ if ! mkfifo %s; then
     exit %d
 fi
 echo %s > %s;
-cat %s; # simple enough for now. just print the return message.
+cat %s; # print the return message; this will be piped back to python
 rm %s # clear the port for later use
 """
-# TODO: ^ actually get stdout and deserialize json message from job manager
 
     for port in itertools.count(1):
         port_fifo = "%d.port" % port
@@ -44,9 +58,12 @@ rm %s # clear the port for later use
         script = template % (settings['root'], port_fifo, errors['eexists'], cmd_json_str, settings['pipe'], port_fifo, port_fifo)
         script = script.strip()
         tocall = "ssh -A %s '%s'" % (host, script)
-        ret = subprocess.call(tocall, shell=True)
+        proc = subprocess.Popen(tocall, shell=True, stdout=subprocess.PIPE)
+        procout, procerr = proc.communicate()
+        print procout
+        ret = proc.returncode
         if ret == 0:
-            break
+            return json.loads(procout)
         elif ret == errors['eexists']:
             # then try a new port of this one was already in use
             continue
@@ -58,16 +75,17 @@ def handle_job(cmd_json, args, parser, config):
         parser.error("command type %s requires either cmd or file" % args.type)
     if args.cmd is not None:
         cmd_json['run'] = args.cmd
-        submit(args, cmd_json, config)
+        submit(cmd_json, args, parser, config)
     if args.cmd_file is not None:
+        cmd_json['run'] = args.cmd
         with open(args.cmd_file, 'r') as f:
             for line in f:
                 cmd_json['run'] = line
-                submit(args, cmd_json, config)
+                submit(cmd_json, args, parser, config)
 
 def handle_list(cmd_json, args, parser, config):
     cmd_json['type'] = 'list'
-    submit(args, cmd_json, config)
+    return submit(cmd_json, args, parser, config)
 
 def handle_configure(cmd_json, args, parser, config):
     cmd_json['type'] = 'configure'
@@ -76,7 +94,7 @@ def handle_configure(cmd_json, args, parser, config):
     if args.max_jobs is None:
         parser.error("Configure command needs to specify new max jobs")
     cmd_json['max_jobs'] = args.max_jobs
-    submit(args, cmd_json, config)
+    return submit(cmd_json, args, parser, config)
 
 def main(args):
     with open(args.config) as f:
