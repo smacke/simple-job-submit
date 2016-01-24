@@ -12,7 +12,7 @@ file, (see config.yaml.example for an example) and once job managers are up and
 running, submitting a command to a free node is as simple as:
 
 ```
-./submit.py any job --command 'commands; to; run;'
+./submit.py any job --command 'commands; to; run;' --config config.yaml
 ```
 
 sjs will then tell you where it sent the job submission and whether submission
@@ -48,6 +48,9 @@ On manager-3:
 ```
 ./job_manager --max-jobs-running 6
 ```
+
+The submit script has --config command line argument specifying
+the yaml config file, and this defaults to 'config.yaml'.
 
 ```
 ./submit manager-1 status
