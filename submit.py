@@ -28,12 +28,11 @@ def submit(cmd_json, args, parser, config, suppress_output=False):
                 continue
             if status['jobs_running'] < status['max_jobs_running']:
                 print ('[%s]' % args.manager),
-                return handle_job(cmd_json, args, parser, config)
-                break
-            else:
+                return handle_job_simple(cmd_json, args, parser, config)
+            elif status['max_jobs_running'] > 0:
                 saturated_but_not_erroring = manager
         if saturated_but_not_erroring == None:
-            raise Exception("all managers have errors, can't run job!")
+            raise Exception("all managers have errors or can accept 0 jobs, can't run job!")
         args.manager = saturated_but_not_erroring
         print ('[%s]' % args.manager),
         return handle_job(cmd_json, args, parser, config)
@@ -73,17 +72,24 @@ rm %s # clear the port for later use
         else:
             raise Exception("Trying to submit command, got error code %d" % ret)
 
+def handle_job_simple(cmd_json, args, parser, config, suppress_output=False):
+    cmd_json['type'] = 'job'
+    # this function assumes cmd_json['run'] already set
+    return submit(cmd_json, args, parser, config, suppress_output)
+
 def handle_job(cmd_json, args, parser, config, suppress_output=False):
     cmd_json['type'] = 'job'
     if args.cmd is None and args.cmd_file is None:
         parser.error("command type %s requires either cmd or file" % args.type)
+    manager = args.manager
     if args.cmd is not None:
         cmd_json['run'] = args.cmd
         submit(cmd_json, args, parser, config, suppress_output)
     if args.cmd_file is not None:
-        cmd_json['run'] = args.cmd
         with open(args.cmd_file, 'r') as f:
             for line in f:
+                args.manager = manager # since this gets fiddled with
+                # TODO: maybe pass deep copies further down
                 cmd_json['run'] = line
                 submit(cmd_json, args, parser, config, suppress_output)
 
