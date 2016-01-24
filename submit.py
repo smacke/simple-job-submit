@@ -59,7 +59,12 @@ rm %s # clear the port for later use
         cmd_json_str = re.escape(json.dumps(cmd_json))
         script = template % (settings['root'], port_fifo, errors['eexists'], cmd_json_str, settings['pipe'], port_fifo, port_fifo)
         script = script.strip()
-        tocall = "ssh -A %s '%s'" % (host, script)
+        port = 22
+        if port in settings:
+            port = int(settings['port'])
+        tocall = "ssh -A -p %d %s '%s'" % (port, host, script)
+        if 'password' in settings:
+            tocall = ('sshpass -p %s ' % settings['password']) + tocall
         proc = subprocess.Popen(tocall, shell=True, stdout=subprocess.PIPE)
         procout, procerr = proc.communicate()
         if not suppress_output: print procout
