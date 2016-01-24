@@ -39,6 +39,8 @@ def submit(cmd_json, args, parser, config, suppress_output=False):
 
     settings = config['managers'][args.manager]
     host = settings['host']
+    if 'user' in settings:
+        host = settings['user'] + '@' + host
 
     template = \
 """

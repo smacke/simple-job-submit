@@ -1,5 +1,6 @@
 managers:
     manager-1:
+        user: joe
         host: foo
         root: ~/code/project
         pipe: jobs.pipe
