@@ -1,0 +1,5 @@
+- implement timeouts if can't reach manager via ssh
+- deploy script
+- fix bug where squoted commands (e.g. in file) fail spectacularly
+- adaptive max-jobs-running based on available cpu resources
+- periodic or on-demand flushing of jobs queued to a log
