@@ -118,7 +118,7 @@ if __name__=="__main__":
     parser.add_argument('--config', dest='config', default='config.yaml')
     parser.add_argument('--command', dest='cmd', default=None)
     parser.add_argument('--command-file', dest='cmd_file', default=None)
-    parser.add_argument('--max-jobs-running', dest='max_jobs', default=None)
+    parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, default=None)
     parser.add_argument('--git', dest='git', default=False, action='store_true')
     parser.add_argument('--make', dest='make', default=False, action='store_true')
     args = parser.parse_args()
