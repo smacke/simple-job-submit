@@ -76,7 +76,7 @@ def handle_submit_job(command):
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
 
-def handle_get_listing(command):
+def handle_get_status(command):
     global max_jobs
     global jobs_running
     global jobs
@@ -115,7 +115,7 @@ def handle_invalid(command):
 
 def handle_commands():
     handlers = {'job': handle_submit_job,
-                'list': handle_get_listing,
+                'status': handle_get_status,
                 'configure': handle_configure,
                 }
     while True:

@@ -22,9 +22,9 @@ def submit(cmd_json, args, parser, config, suppress_output=False):
         saturated_but_not_erroring = None
         for manager in config['managers']:
             args.manager = manager
-            status = handle_list(cmd_json, args, parser, config, suppress_output=True)
+            status = handle_status(cmd_json, args, parser, config, suppress_output=True)
             if status['code'] > 0:
-                sys.stderr.write("Warning: manager %s had error during listing: %s" % (args.manager, status['message']))
+                sys.stderr.write("Warning: manager %s had error during stating: %s" % (args.manager, status['message']))
                 continue
             if status['jobs_running'] < status['max_jobs_running']:
                 print ('[%s]' % args.manager),
@@ -98,8 +98,8 @@ def handle_job(cmd_json, args, parser, config, suppress_output=False):
                 cmd_json['run'] = line
                 submit(cmd_json, args, parser, config, suppress_output)
 
-def handle_list(cmd_json, args, parser, config, suppress_output=False):
-    cmd_json['type'] = 'list'
+def handle_status(cmd_json, args, parser, config, suppress_output=False):
+    cmd_json['type'] = 'status'
     return submit(cmd_json, args, parser, config, suppress_output)
 
 def handle_configure(cmd_json, args, parser, config, suppress_output=False):
@@ -122,10 +122,10 @@ def main(args):
     command_type_handle[args.type](cmd_json, args, parser, config)
 
 if __name__=="__main__":
-    command_type_handle = {'job': handle_job, 'list': handle_list, 'configure': handle_configure}
+    command_type_handle = {'job': handle_job, 'status': handle_status, 'configure': handle_configure}
     parser = argparse.ArgumentParser(description="Submit job to job manager.")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
-    parser.add_argument('type', help="type of command to run -- either job (submit job), list (list current jobs), or configure (set manager parameters)")
+    parser.add_argument('type', help="type of command to run -- either job (submit job), status (stat current jobs), or configure (set manager parameters)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is job, the command to run as a job")
     parser.add_argument('--command-file', dest='cmd_file', default=None, help="if type is job, the newline-separated file of commands to run")
