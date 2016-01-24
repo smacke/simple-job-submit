@@ -164,7 +164,7 @@ def main(args):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description="Manage job submissions")
-    parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, required=True)
-    parser.add_argument('--pipe-name', dest='pipe_name', default='jobs.pipe')
+    parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, required=True, help="maximum # of jobs to run at any given time (rest are queued)")
+    parser.add_argument('--pipe-name', dest='pipe_name', default='jobs.pipe', help="name of named pipe used for job submission")
     args = parser.parse_args()
     main(args)
