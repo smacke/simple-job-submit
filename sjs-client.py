@@ -177,6 +177,8 @@ def handle_deploy(cmd_json, args, parser, config):
         for manager in config['managers']:
             args.manager = manager
             handle_deploy(cmd_json, args, parser, config)
+    elif args.manager == 'any':
+        parser.error('deployment requires specific manager or all')
     else:
         settings = config['managers'][args.manager]
         subprocess.call(build_ssh_command(settings,
@@ -190,6 +192,26 @@ def handle_deploy(cmd_json, args, parser, config):
                     "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
             (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
             shell=True)
+
+def handle_shutdown(cmd_json, args, parser, config):
+    if args.manager == 'all':
+        for manager in config['managers']:
+            args.manager = manager
+            handle_shutdown(cmd_json, args, parser, config)
+    elif args.manager == 'any':
+        parser.error('shutdown requires specific manager or all')
+    else:
+        status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
+        num_jobs_running = int(status['jobs_running'])
+        num_jobs_queued = int(status['num_jobs_queued'])
+        if num_jobs_running > 0 or num_jobs_queued > 0:
+            sys.stderr.write("[%s] %d job(s) running and %d job(s) queued, refuse shutdown\n" % \
+                    (args.manager, num_jobs_running, num_jobs_queued))
+            return
+        else:
+            cmd_json['type'] = 'shutdown'
+            return run_command(cmd_json, args, parser, config)
+
 
 def main(args):
     with open(args.config) as f:
@@ -208,9 +230,10 @@ if __name__=="__main__":
             'configure': handle_configure,
             'cancel': handle_cancel,
             'deploy': handle_deploy,
+            'shutdown': handle_shutdown,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), or deploy (deploy job managers from config)")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), or shutdown")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")

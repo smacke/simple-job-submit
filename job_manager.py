@@ -148,6 +148,27 @@ def handle_cancel(command):
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
 
+def handle_shutdown(command):
+    global jobs
+    global jobs_running
+    global shutdown_requested
+    jobs_cv.acquire()
+    jobs_queued = len(jobs)
+    jobs_cv.release()
+    if jobs_running > 0 or jobs_queued > 0:
+        do_shutdown = False
+        ret = {'code': 4, 'status': 'error', 'jobs_running': jobs_running,
+                'num_jobs_queued': jobs_queued,
+                'message': 'refusing shutdown (jobs still running or in queue)'}
+    else:
+        do_shutdown = True
+        ret = {'code': 0, 'status': 'OK', 'message': 'shutdown successful'}
+    with open(command['port'], 'w') as f:
+        f.write(json.dumps(ret))
+    if do_shutdown:
+        with open(pipe_name, 'w') as pipein:
+            pipein.write(json.dumps({'SHUTDOWN': True}))
+
 def handle_invalid(command):
     ret = {'code': 1, 'status': 'error', 'message': 'unknown command'}
     with open(command['port'], 'w') as f:
@@ -158,6 +179,7 @@ def handle_commands():
                 'stat': handle_stat,
                 'configure': handle_configure,
                 'cancel': handle_cancel,
+                'shutdown': handle_shutdown,
                 }
     while True:
         command = commands_q.get(block=True)
@@ -168,13 +190,18 @@ def handle_commands():
             handlers[command['type']](command)
 
 def receive_commands_forever():
-    while True:
+    shutdown_requested = False
+    while not shutdown_requested:
         try:
             with open(pipe_name, 'r') as pipein:
                 commands = pipein.read().split('\n')
                 for command in commands:
                     if len(command) > 0:
-                        commands_q.put(json.loads(command))
+                        command = json.loads(command)
+                        if 'SHUTDOWN' in command and command['SHUTDOWN']:
+                            shutdown_requested = True
+                        else:
+                            commands_q.put(command)
 
         except IOError as e:
             # restart the system call after handling SIGCHILD
