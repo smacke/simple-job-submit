@@ -183,8 +183,11 @@ def handle_deploy(cmd_json, args, parser, config):
         subprocess.call(build_scp_command(settings,
             './job_manager.py', settings['project_root']), shell=True)
         subprocess.call(build_ssh_command(settings,
-            "cd %s; export PATH=\"$PATH\":/usr/local/bin; tmux new -s %s -d; tmux send -t %s:0 \"./job_manager.py --max-jobs-running %d\" ENTER;" % \
-            (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])), shell=True)
+            ("cd %s; export PATH=\"$PATH\":/usr/local/bin; " + ("make; " if args.make else "") + \
+                    "tmux new -s %s -d; tmux send -t %s:0 " + \
+                    "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
+            (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
+            shell=True)
 
 def main(args):
     with open(args.config) as f:
