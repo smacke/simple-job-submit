@@ -69,7 +69,7 @@ def handle_job_submit_any(cmd_json, args, parser, config):
     all_managers_0_max = True
     for manager in config['managers']:
         args.manager = manager
-        status = handle_status(cmd_json, args, parser, config, suppress_output=True)
+        status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
         if status['code'] > 0:
             sys.stderr.write("[%s] warning: manager had error during stating: %s" % (args.manager, status['message']))
             continue
@@ -108,7 +108,7 @@ def handle_submit_job(cmd_json, args, parser, config):
     if args.manager == 'any':
         return handle_submit_job_any(cmd_json, args, parser, config)
     else:
-        status = handle_status(cmd_json, args, parser, config, suppress_output=True)
+        status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
         if status['max_jobs_running'] <= 0:
             print '[%s] warning: manager accepting at most 0 jobs, job will be queued' % args.manager
         return handle_submit_job_nocheck_status(cmd_json, args, parser, config)
@@ -129,8 +129,8 @@ def handle_submit_job_entrypoint(cmd_json, args, parser, config):
                 cmd_json['run'] = line
                 handle_submit_job(cmd_json, args, parser, config)
 
-def handle_status(cmd_json, args, parser, config, suppress_output=False):
-    cmd_json['type'] = 'status'
+def handle_stat(cmd_json, args, parser, config, suppress_output=False):
+    cmd_json['type'] = 'stat'
     if args.manager == 'any':
         parser.error("this doesn't make sense; stating should be specific")
     return run_command(cmd_json, args, parser, config, suppress_output)
@@ -167,13 +167,13 @@ def main(args):
 if __name__=="__main__":
     command_type_handle = {
             'submit': handle_submit_job_entrypoint, 
-            'status': handle_status, 
+            'stat': handle_stat, 
             'configure': handle_configure,
             'cancel': handle_cancel,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), or configure (set manager parameters)")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), status (stat current jobs), or configure (set manager parameters)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
     parser.add_argument('--jid', dest='jid_cancel', type=int, default=None, help="if type is cancel, which job to cancel")

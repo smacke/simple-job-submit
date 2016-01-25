@@ -1,4 +1,4 @@
-- implement timeouts if can't reach manager via ssh
+- implement max time to block on submission pipe
 - deploy script
 - fix bug where squoted commands (e.g. in file) fail spectacularly
 - adaptive max-jobs-running based on available cpu resources

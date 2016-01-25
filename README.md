@@ -12,7 +12,7 @@ file, (see config.yaml.example for an example) and once job managers are up and
 running, submitting a command to a free node is as simple as:
 
 ```
-./submit.py any job --command 'commands; to; run;' --config config.yaml
+./sjs-client.py submit any --command 'commands; to; run;' --config config.yaml
 ```
 
 sjs will then tell you where it sent the job submission and whether submission
@@ -49,28 +49,28 @@ On manager-3:
 ./job_manager --max-jobs-running 6
 ```
 
-The submit script has --config command line argument specifying
+The client script has --config command line argument specifying
 the yaml config file, and this defaults to 'config.yaml'.
 
 ```
-./submit manager-1 status
+./sjs-client.py stat manager-1
 {"status": "OK", "jobs_running": 0, "max_jobs_running": 2, "code": 0, "jobs_queued": "[]"}
 ```
 
 ```
-./submit all status
+./sjs-client.py stat all
 [manager-1] {"status": "OK", "jobs_running": 0, "max_jobs_running": 2, "code": 0, "jobs_queued": "[]"}
 [manager-2] {"status": "OK", "jobs_running": 0, "max_jobs_running": 4, "code": 0, "jobs_queued": "[]"}
 [manager-3] {"status": "OK", "jobs_running": 0, "max_jobs_running": 6, "code": 0, "jobs_queued": "[]"}
 ```
 
 ```
-./submit manager-1 job --command 'echo hello'
+./sjs-client.py submit manager-1 --command 'echo hello'
 {"status": "OK", "message": "job submitted successfully", "code": 0, "job_id": 0}
 ```
 
 ```
-./submit manager-1 job --command-file commands.txt
+./sjs-client.py submit manager-1 --command-file commands.txt
 {"status": "OK", "message": "job submitted successfully", "code": 0, "job_id": 1}
 {"status": "OK", "message": "job submitted successfully", "code": 0, "job_id": 2}
 {"status": "OK", "message": "job submitted successfully", "code": 0, "job_id": 3}
@@ -79,12 +79,12 @@ the yaml config file, and this defaults to 'config.yaml'.
 ```
 
 ```
-./submit manager-1 configure --max-jobs-running 0
+./sjs-client.py configure manager-1 --max-jobs-running 0
 {"status": "OK", "old_max_jobs_running": 2, "code": 0, "new_max_jobs_running": 0, "message": "configuration successful"}
 ```
 
 ```
-./submit all status
+./sjs-client.py stat all
 [manager-1] {"status": "OK", "jobs_running": 0, "max_jobs_running": 0, "code": 0, "jobs_queued": "[]"}
 [manager-2] {"status": "OK", "jobs_running": 0, "max_jobs_running": 4, "code": 0, "jobs_queued": "[]"}
 [manager-3] {"status": "OK", "jobs_running": 0, "max_jobs_running": 6, "code": 0, "jobs_queued": "[]"}
