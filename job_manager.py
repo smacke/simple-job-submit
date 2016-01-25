@@ -148,7 +148,7 @@ def handle_invalid(command):
         f.write(json.dumps(ret))
 
 def handle_commands():
-    handlers = {'job': handle_submit_job,
+    handlers = {'submit_job': handle_submit_job,
                 'status': handle_get_status,
                 'configure': handle_configure,
                 'cancel': handle_cancel,

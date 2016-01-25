@@ -11,15 +11,15 @@ import re
 errors = {'eexists': 2}
 
 
-def submit(cmd_json, args, parser, config, suppress_output=False):
+def run_command(cmd_json, args, parser, config, suppress_output=False):
     if args.manager == 'all':
         for manager in config['managers']:
             args.manager = manager
             print ('[%s]' % args.manager),
-            submit(cmd_json, args, parser, config)
+            run_command(cmd_json, args, parser, config)
         return
     elif args.manager == 'any':
-        raise Exception("'any' should be reserved for job-handling logic; this exception should be unreachable")
+        raise Exception("'any' should be reserved for job-submission-handling logic; this exception should be unreachable")
 
     settings = config['managers'][args.manager]
     host = settings['host']
@@ -61,9 +61,9 @@ rm %s # clear the port for later use
             # then try a new port of this one was already in use
             continue
         else:
-            raise Exception("Trying to submit command, got error code %d" % ret)
+            raise Exception("Trying to run command, got error code %d" % ret)
 
-def handle_job_any(cmd_json, args, parser, config):
+def handle_job_submit_any(cmd_json, args, parser, config):
     best_manager = None
     most_slots_least_queued = (0, float('inf'))
     all_managers_0_max = True
@@ -87,53 +87,53 @@ def handle_job_any(cmd_json, args, parser, config):
             best_manager = manager
 
     if best_manager is None:
-        raise Exception("all managers have errors, can't run job!")
+        raise Exception("all managers have errors, can't submit job!")
     if all_managers_0_max:
-        raise Exception("all managers accepting at most 0 jobs, can't run job!")
+        raise Exception("all managers accepting at most 0 jobs, can't submit job!")
 
     args.manager = best_manager
     print ('[%s]' % args.manager),
-    return handle_job_nocheck_status(cmd_json, args, parser, config)
+    return handle_job_submit_nocheck_status(cmd_json, args, parser, config)
 
-def handle_job_nocheck_status(cmd_json, args, parser, config):
-    cmd_json['type'] = 'job'
+def handle_submit_job_nocheck_status(cmd_json, args, parser, config):
+    cmd_json['type'] = 'submit_job'
     # this function does not do a status check before submission
     # as with handle_job, it assumes cmd_json['run'] is set
-    return submit(cmd_json, args, parser, config)
+    return run_command(cmd_json, args, parser, config)
 
-def handle_job(cmd_json, args, parser, config):
-    cmd_json['type'] = 'job'
+def handle_submit_job(cmd_json, args, parser, config):
+    cmd_json['type'] = 'submit_job'
     # this function assumes cmd_json['run'] already set
 
     if args.manager == 'any':
-        return handle_job_any(cmd_json, args, parser, config)
+        return handle_submit_job_any(cmd_json, args, parser, config)
     else:
         status = handle_status(cmd_json, args, parser, config, suppress_output=True)
         if status['max_jobs_running'] <= 0:
             print '[%s] warning: manager accepting at most 0 jobs, job will be queued' % args.manager
-        return handle_job_nocheck_status(cmd_json, args, parser, config)
+        return handle_submit_job_nocheck_status(cmd_json, args, parser, config)
 
-def handle_job_entrypoint(cmd_json, args, parser, config):
-    cmd_json['type'] = 'job'
+def handle_submit_job_entrypoint(cmd_json, args, parser, config):
+    cmd_json['type'] = 'submit_job'
     if args.cmd is None and args.cmd_file is None:
         parser.error("command type %s requires either cmd or file" % args.type)
     manager = args.manager
     if args.cmd is not None:
         cmd_json['run'] = args.cmd
-        handle_job(cmd_json, args, parser, config)
+        handle_submit_job(cmd_json, args, parser, config)
     if args.cmd_file is not None:
         with open(args.cmd_file, 'r') as f:
             for line in f:
                 args.manager = manager # since this gets fiddled with
                 # TODO: maybe pass deep copies further down
                 cmd_json['run'] = line
-                handle_job(cmd_json, args, parser, config)
+                handle_submit_job(cmd_json, args, parser, config)
 
 def handle_status(cmd_json, args, parser, config, suppress_output=False):
     cmd_json['type'] = 'status'
     if args.manager == 'any':
         parser.error("this doesn't make sense; stating should be specific")
-    return submit(cmd_json, args, parser, config, suppress_output)
+    return run_command(cmd_json, args, parser, config, suppress_output)
 
 def handle_configure(cmd_json, args, parser, config):
     cmd_json['type'] = 'configure'
@@ -142,7 +142,7 @@ def handle_configure(cmd_json, args, parser, config):
     if args.max_jobs is None:
         parser.error("Configure command needs to specify new max jobs")
     cmd_json['max_jobs'] = args.max_jobs
-    return submit(cmd_json, args, parser, config)
+    return run_command(cmd_json, args, parser, config)
 
 def handle_cancel(cmd_json, args, parser, config):
     cmd_json['type'] = 'cancel'
@@ -152,7 +152,7 @@ def handle_cancel(cmd_json, args, parser, config):
         # TODO: make job ids unique across all managers, then maybe 'any' makes sense
         parser.error("job cancellation requires specific manager")
     cmd_json['job_to_cancel'] = args.jid_cancel
-    return submit(cmd_json, args, parser, config)
+    return run_command(cmd_json, args, parser, config)
 
 def main(args):
     with open(args.config) as f:
@@ -166,18 +166,18 @@ def main(args):
 
 if __name__=="__main__":
     command_type_handle = {
-            'job': handle_job_entrypoint, 
+            'submit': handle_submit_job_entrypoint, 
             'status': handle_status, 
             'configure': handle_configure,
             'cancel': handle_cancel,
             }
-    parser = argparse.ArgumentParser(description="Submit job to job manager.")
+    parser = argparse.ArgumentParser(description="Client for talking to job managers.")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
-    parser.add_argument('type', help="type of command to run -- either job (submit job), status (stat current jobs), or configure (set manager parameters)")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), status (stat current jobs), or configure (set manager parameters)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
-    parser.add_argument('--command', dest='cmd', default=None, help="if type is job, the command to run as a job")
+    parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
     parser.add_argument('--jid', dest='jid_cancel', type=int, default=None, help="if type is cancel, which job to cancel")
-    parser.add_argument('--command-file', dest='cmd_file', default=None, help="if type is job, the newline-separated file of commands to run")
+    parser.add_argument('--command-file', dest='cmd_file', default=None, help="if type is submit, the newline-separated file of commands to run")
     parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, default=None, help="if type is configure, new maximum # of jobs running")
     parser.add_argument('--git', dest='git', default=False, action='store_true', help="whether to do a 'git pull' before executing commands")
     parser.add_argument('--make', dest='make', default=False, action='store_true', help="whether to do a 'make' before executing commands")
