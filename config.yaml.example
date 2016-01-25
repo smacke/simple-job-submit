@@ -2,16 +2,21 @@ managers:
     manager-1:
         user: joe
         host: foo
-        root: ~/code/project
+        project_root: ~/code/project
+        default_max_jobs: 2
         pipe: jobs.pipe
         password: pass
     manager-2:
         host: bar
         port: 9999
-        root: ~/code/project-1
+        project_root: ~/code/project-1
+        default_max_jobs: 4
         pipe: jobs.pipe
     manager-3:
         host: bar
         port: 9999
-        root: ~/code/project-2
+        project_root: ~/code/project-2
+        default_max_jobs: 6
         pipe: jobs.pipe
+deployment:
+    project_url: https://github.com/smacke/simple-job-submit.git

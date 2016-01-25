@@ -10,6 +10,30 @@ import re
 
 errors = {'eexists': 2}
 
+def build_remote_command(cmd_type, port_flag, manager_settings, command):
+    port = 22
+    if port in manager_settings:
+        port = int(manager_settings['port'])
+    remote_command = "%s %s %d %s" % (cmd_type, port_flag, port, command)
+    if 'password' in manager_settings:
+        remote_command = ('sshpass -p %s ' % manager_settings['password']) + remote_command
+    return remote_command
+
+def get_host_from_settings(manager_settings):
+    host = manager_settings['host']
+    if 'user' in manager_settings:
+        host = settings['user'] + '@' + host
+    return host
+
+def build_ssh_command(manager_settings, command):
+    host = get_host_from_settings(manager_settings)
+    command = "%s '%s'" % (host, command)
+    return build_remote_command("ssh -A", "-p", manager_settings, command)
+
+def build_scp_command(manager_settings, from_file, to_file):
+    host = get_host_from_settings(manager_settings)
+    command = "%s %s:%s" % (from_file, host, to_file)
+    return build_remote_command("scp", "-P", manager_settings, command)
 
 def run_command(cmd_json, args, parser, config, suppress_output=False):
     if args.manager == 'all':
@@ -22,10 +46,6 @@ def run_command(cmd_json, args, parser, config, suppress_output=False):
         raise Exception("'any' should be reserved for job-submission-handling logic; this exception should be unreachable")
 
     settings = config['managers'][args.manager]
-    host = settings['host']
-    if 'user' in settings:
-        host = settings['user'] + '@' + host
-
     template = \
 """
 cd %s;
@@ -43,15 +63,10 @@ rm %s # clear the port for later use
         # escaping arbitrary cmd line arguments in bash
         # ref: http://qntm.org/bash
         cmd_json_str = re.escape(json.dumps(cmd_json))
-        script = template % (settings['root'], port_fifo, errors['eexists'], cmd_json_str, settings['pipe'], port_fifo, port_fifo)
+        script = template % (settings['project_root'], port_fifo, errors['eexists'], cmd_json_str, settings['pipe'], port_fifo, port_fifo)
         script = script.strip()
-        port = 22
-        if port in settings:
-            port = int(settings['port'])
-        tocall = "ssh -A -p %d %s '%s'" % (port, host, script)
-        if 'password' in settings:
-            tocall = ('sshpass -p %s ' % settings['password']) + tocall
-        proc = subprocess.Popen(tocall, shell=True, stdout=subprocess.PIPE)
+        ssh_command = build_ssh_command(settings, script)
+        proc = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE)
         procout, procerr = proc.communicate()
         if not suppress_output: print procout
         ret = proc.returncode
@@ -154,6 +169,23 @@ def handle_cancel(cmd_json, args, parser, config):
     cmd_json['job_to_cancel'] = args.jid_cancel
     return run_command(cmd_json, args, parser, config)
 
+def handle_deploy(cmd_json, args, parser, config):
+    # TODO: this one is different; maybe should have different method signature
+    if args.manager == 'all':
+        for manager in config['managers']:
+            args.manager = manager
+            handle_deploy(cmd_json, args, parser, config)
+    else:
+        settings = config['managers'][args.manager]
+        subprocess.call(build_ssh_command(settings,
+                "git clone %s %s" % (config['deployment']['project_url'],
+                    settings['project_root'])), shell=True)
+        subprocess.call(build_scp_command(settings,
+            './job_manager.py', settings['project_root']), shell=True)
+        subprocess.call(build_ssh_command(settings,
+            "cd %s; export PATH=\"$PATH\":/usr/local/bin; tmux new -s %s -d; tmux send -t %s:0 \"./job_manager.py --max-jobs-running %d\" ENTER;" % \
+            (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])), shell=True)
+
 def main(args):
     with open(args.config) as f:
         config = yaml.safe_load(f)
@@ -170,9 +202,10 @@ if __name__=="__main__":
             'stat': handle_stat, 
             'configure': handle_configure,
             'cancel': handle_cancel,
+            'deploy': handle_deploy,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), or configure (set manager parameters)")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), or deploy (deploy job managers from config)")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
