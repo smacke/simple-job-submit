@@ -126,17 +126,23 @@ def handle_configure(command):
 def handle_cancel(command):
     global jobs
     cancel_id = command['job_to_cancel']
-    success = False
     jobs_cv.acquire()
-    for i, job in enumerate(jobs):
-        if job['job_id'] == cancel_id:
-            jobs = jobs[:i] + jobs[i+1:]
-            success = True
-            break
+    if cancel_id == 'all':
+        success = True
+        jobs_cancelled = jobs
+        jobs = []
+    else:
+        success = False
+        for i, job in enumerate(jobs):
+            if job['job_id'] == cancel_id:
+                jobs_cancelled = [job]
+                jobs = jobs[:i] + jobs[i+1:]
+                success = True
+                break
     jobs_cv.release()
 
     if success:
-        ret = {'code': 0, 'status': 'OK', 'job_cancelled': job}
+        ret = {'code': 0, 'status': 'OK', 'jobs_cancelled': jobs_cancelled}
     else:
         ret = {'code': 3, 'status': 'error', 'requested_job_to_cancel': cancel_id, 'message': 'requested cancellation not found in queue'}
     with open(command['port'], 'w') as f:

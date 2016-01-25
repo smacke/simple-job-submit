@@ -166,6 +166,8 @@ def handle_cancel(cmd_json, args, parser, config):
     if args.manager == 'any' or args.manager == 'all':
         # TODO: make job ids unique across all managers, then maybe 'any' makes sense
         parser.error("job cancellation requires specific manager")
+    if args.jid_cancel != 'all':
+        args.jid_cancel = int(args.jid_cancel)
     cmd_json['job_to_cancel'] = args.jid_cancel
     return run_command(cmd_json, args, parser, config)
 
@@ -212,7 +214,7 @@ if __name__=="__main__":
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
-    parser.add_argument('--jid', dest='jid_cancel', type=int, default=None, help="if type is cancel, which job to cancel")
+    parser.add_argument('--jid', dest='jid_cancel', default=None, help="if type is cancel, which job to cancel ('all' cancels all jobs)")
     parser.add_argument('--command-file', dest='cmd_file', default=None, help="if type is submit, the newline-separated file of commands to run")
     parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, default=None, help="if type is configure, new maximum # of jobs running")
     parser.add_argument('--git', dest='git', default=False, action='store_true', help="whether to do a 'git pull' before executing commands")
