@@ -1,4 +1,3 @@
-- be able to query whether manager running by checking for command pipe
 - be able to request manager startup if not already running (will assume tmux window exists)
 - have stat show currently-running jobs in addition to those queued
 - have managers flush queues to log on keyboard interrupt (right now queues are lost)

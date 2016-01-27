@@ -216,15 +216,29 @@ def handle_deploy(cmd_json, args, parser, config):
         subprocess.call(build_scp_command(settings,
             './job_manager.py', settings['project_root']), shell=True)
         subprocess.call(build_ssh_command(settings,
-            ("cd %s; " + ("make; " if args.make else "") + \
+            ("export PATH=\"$PATH\":/usr/local/bin; cd %s; " + ("make; " if args.make else "") + \
                     "tmux new -s %s -d; tmux send -t %s:0 " + \
                     "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
             (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
             shell=True)
 
-def is_running(manager, settings):
-    # TODO: impl me
-    pass
+def handle_check_running(cmd_json, args, parser, config, suppress_output=False):
+    if args.manager in all_patts:
+        for manager in config['managers']:
+            args.manager = manager
+            handle_check_running(cmd_json, args, parser, config, suppress_output)
+        return
+    settings = config['managers'][args.manager]
+    check_path = os.path.join(settings['project_root'], settings['pipe'])
+    # check for existence of named pipe
+    is_running = (subprocess.call(build_ssh_command(settings,
+            "[ -p %s ]" % check_path, quiet=True), shell=True) == 0)
+    if not suppress_output:
+        if is_running:
+            print "[%s] I am running" % args.manager
+        else:
+            print "[%s] I am NOT running" % args.manager
+    return is_running
 
 def handle_force(cmd_json, args, parser, config):
     if args.cmd is None:
@@ -239,13 +253,13 @@ def handle_force(cmd_json, args, parser, config):
     else:
         print "[%s] calling command: %s" % (args.manager, args.cmd)
         settings = config['managers'][args.manager]
-#        if is_running(args.manager, settings):
-#            status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
-#            num_jobs_running = int(status['jobs_running'])
-#            if num_jobs_running > 0:
-#                sys.stderr.write("[%s] %d job(s) running, refuse force\n" % \
-#                        (args.manager, num_jobs_running, num_jobs_queued))
-#                return
+        if handle_check_running(cmd_json, args, parser, config, suppress_output=True):
+            status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
+            num_jobs_running = int(status['jobs_running'])
+            if num_jobs_running > 0:
+                sys.stderr.write("[%s] %d job(s) running, refuse force\n" % \
+                        (args.manager, num_jobs_running, num_jobs_queued))
+                return
         subprocess.call(build_ssh_command(settings,
                 "cd %s; %s" % (settings['project_root'], args.cmd), shell=True))
 
@@ -267,15 +281,10 @@ def handle_upload_data(cmd_json, args, parser, config):
         datapath = config['managers'][args.manager]['datadir']
         upload_dataset = config['deployment']['datasets'][args.dataset]
         check_path = os.path.join(datapath, os.path.basename(upload_dataset))
-        try:
-            if subprocess.call(build_ssh_command(settings,
-                "[ -f %s -o -d %s ]" % (check_path, check_path), quiet=True), shell=True) == 0:
-                sys.stderr.write("[%s] warning: path %s already exists, skipping\n" % (args.manager, check_path))
-                return
-        except OSError as e:
-            raise e
-            # this is good, it means we didn't see the file there
-            pass
+        if subprocess.call(build_ssh_command(settings,
+            "[ -f %s -o -d %s ]" % (check_path, check_path), quiet=True), shell=True) == 0:
+            sys.stderr.write("[%s] warning: path %s already exists, skipping\n" % (args.manager, check_path))
+            return
         if subprocess.call(build_rsync_command(settings, upload_dataset, datapath), shell=True) != 0:
             sys.stderr.write("[%s] warning: something went wrong calling rsync to path %s" % (args.manager, datapath))
             return
@@ -320,10 +329,11 @@ if __name__=="__main__":
             'deploy': handle_deploy,
             'force': handle_force,
             'upload-data': handle_upload_data,
+            'check-running': handle_check_running,
             'shutdown': handle_shutdown,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), upload-data (upload data to managers), or shutdown")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), upload-data (upload data to managers), check-running (self-explanatory), or shutdown")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
