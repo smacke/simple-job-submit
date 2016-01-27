@@ -16,9 +16,14 @@ pipe_name = 'jobs.pipe'
 max_jobs = 4
 jobs_running = 0
 
-jobs = []
-current_job_id = 0
+jobs_q = []
 jobs_cv = threading.Condition(threading.Lock())
+
+# TODO: how to use this? we don't get job id when job finishes
+running_q = []
+running_cv = threading.Condition(threading.Lock())
+
+current_job_id = 0
 commands_q = Queue.Queue()
 
 saturated = threading.Condition(threading.Lock())
@@ -49,7 +54,7 @@ def prehooks(cmd_json):
 
 def run_jobs():
     global jobs_running
-    global jobs
+    global jobs_q
     while True:
         saturated.acquire()
         while jobs_running >= max_jobs:
@@ -59,7 +64,7 @@ def run_jobs():
         # before we incrmenet jobs_running
 
         jobs_cv.acquire()
-        while len(jobs)==0:
+        while len(jobs_q)==0:
             jobs_cv.wait()
 
         if jobs_running >= max_jobs:
@@ -70,7 +75,7 @@ def run_jobs():
             continue
 
         job = jobs[0]
-        jobs = jobs[1:]
+        jobs_q = jobs_q[1:]
         jobs_cv.release()
 
         saturated.acquire()
@@ -94,10 +99,10 @@ def handle_submit_job(command):
 def handle_stat(command):
     global max_jobs
     global jobs_running
-    global jobs
+    global jobs_q
     jobs_cv.acquire()
-    queued = str(jobs)
-    num_queued = len(jobs)
+    queued = str(jobs_q)
+    num_queued = len(jobs_q)
     jobs_cv.release()
     running = jobs_running
     ret = {'code': 0, 'status': 'OK', 'jobs_running': running, 'num_jobs_queued': num_queued,
@@ -126,19 +131,19 @@ def handle_configure(command):
         f.write(json.dumps(ret))
 
 def handle_cancel(command):
-    global jobs
+    global jobs_q
     cancel_id = command['job_to_cancel']
     jobs_cv.acquire()
     if cancel_id in all_patts:
         success = True
-        jobs_cancelled = jobs
-        jobs = []
+        jobs_cancelled = jobs_q
+        jobs_q = []
     else:
         success = False
-        for i, job in enumerate(jobs):
+        for i, job in enumerate(jobs_q):
             if job['job_id'] == cancel_id:
                 jobs_cancelled = [job]
-                jobs = jobs[:i] + jobs[i+1:]
+                jobs_q = jobs_q[:i] + jobs_q[i+1:]
                 success = True
                 break
     jobs_cv.release()
@@ -151,11 +156,11 @@ def handle_cancel(command):
         f.write(json.dumps(ret))
 
 def handle_shutdown(command):
-    global jobs
+    global jobs_q
     global jobs_running
     global shutdown_requested
     jobs_cv.acquire()
-    jobs_queued = len(jobs)
+    jobs_queued = len(jobs_q)
     jobs_cv.release()
     if jobs_running > 0 or jobs_queued > 0:
         do_shutdown = False
