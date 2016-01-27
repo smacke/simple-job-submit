@@ -64,6 +64,10 @@ def build_rsync_command(manager_settings, from_file, to_file):
     rsync += " --progress"
     return build_remote_command(rsync, manager_settings, command)
 
+def check_exists_remote(settings, check_path, check_flag="-e"):
+    return subprocess.call(build_ssh_command(settings, "[ %s %s ]" % (check_flag, check_path),
+        quiet=True), shell=True) == 0
+
 def run_command(cmd_json, args, parser, config, suppress_output=False):
     if args.manager in all_patts:
         for manager in config['managers']:
@@ -200,6 +204,14 @@ def handle_cancel(cmd_json, args, parser, config):
     cmd_json['job_to_cancel'] = args.jid_cancel
     return run_command(cmd_json, args, parser, config)
 
+def tmux_and_start(settings, args):
+    return subprocess.call(build_ssh_command(settings,
+        ("export PATH=\"$PATH\":/usr/local/bin; cd %s; " + ("make; " if args.make else "") + \
+                "tmux new -s %s -d; tmux send -t %s:0 " + \
+                "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
+        (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
+        shell=True) == 0
+
 def handle_deploy(cmd_json, args, parser, config):
     # TODO: this one is different; maybe should have different method signature
     if args.manager in all_patts:
@@ -210,17 +222,19 @@ def handle_deploy(cmd_json, args, parser, config):
         parser.error('deployment requires specific manager or all')
     else:
         settings = config['managers'][args.manager]
+        if check_exists_remote(settings, settings['project_root']):
+            sys.stderr.write("[%s] error: already deployed" % args.manager)
+            return
         subprocess.call(build_ssh_command(settings,
                 "git clone %s %s" % (config['deployment']['project_url'],
                     settings['project_root'])), shell=True)
         subprocess.call(build_scp_command(settings,
             './job_manager.py', settings['project_root']), shell=True)
-        subprocess.call(build_ssh_command(settings,
-            ("export PATH=\"$PATH\":/usr/local/bin; cd %s; " + ("make; " if args.make else "") + \
-                    "tmux new -s %s -d; tmux send -t %s:0 " + \
-                    "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
-            (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
-            shell=True)
+        if tmux_and_start(settings, args):
+            print "[%s] startup successful" % args.manager
+        else:
+            sys.stderr.write("[%s] something went wrong on start!" % args.manager)
+            return
 
 def handle_check_running(cmd_json, args, parser, config, suppress_output=False):
     if args.manager in all_patts:
@@ -231,8 +245,7 @@ def handle_check_running(cmd_json, args, parser, config, suppress_output=False):
     settings = config['managers'][args.manager]
     check_path = os.path.join(settings['project_root'], settings['pipe'])
     # check for existence of named pipe
-    is_running = (subprocess.call(build_ssh_command(settings,
-            "[ -p %s ]" % check_path, quiet=True), shell=True) == 0)
+    is_running = check_exists_remote(settings, check_path, "-p")
     if not suppress_output:
         if is_running:
             print "[%s] I am running" % args.manager
@@ -261,7 +274,7 @@ def handle_force(cmd_json, args, parser, config):
                         (args.manager, num_jobs_running, num_jobs_queued))
                 return
         subprocess.call(build_ssh_command(settings,
-                "cd %s; %s" % (settings['project_root'], args.cmd), shell=True))
+                "cd %s; %s" % (settings['project_root'], args.cmd)), shell=True)
 
 def handle_upload_data(cmd_json, args, parser, config):
     dataset = args.dataset
@@ -271,6 +284,8 @@ def handle_upload_data(cmd_json, args, parser, config):
             args.dataset = dataset # since this gets fiddled with
             handle_upload_data(cmd_json, args, parser, config)
         return
+    elif args.manager == 'any':
+        parser.error('upload requires specific manager or all')
     elif dataset in all_patts:
         for dataset in config['deployment']['datasets']:
             args.dataset = dataset
@@ -281,14 +296,34 @@ def handle_upload_data(cmd_json, args, parser, config):
         datapath = config['managers'][args.manager]['datadir']
         upload_dataset = config['deployment']['datasets'][args.dataset]
         check_path = os.path.join(datapath, os.path.basename(upload_dataset))
-        if subprocess.call(build_ssh_command(settings,
-            "[ -f %s -o -d %s ]" % (check_path, check_path), quiet=True), shell=True) == 0:
+        if check_exists_remote(settings, check_path):
             sys.stderr.write("[%s] warning: path %s already exists, skipping\n" % (args.manager, check_path))
             return
         if subprocess.call(build_rsync_command(settings, upload_dataset, datapath), shell=True) != 0:
             sys.stderr.write("[%s] warning: something went wrong calling rsync to path %s" % (args.manager, datapath))
             return
 
+def handle_start(cmd_json, args, parser, config):
+    if args.manager in all_patts:
+        for manager in config['managers']:
+            args.manager = manager
+            handle_start(cmd_json, args, parser, config)
+    elif args.manager == 'any':
+        parser.error('start requires specific manager or all')
+    else:
+        if handle_check_running(cmd_json, args, parser, config, suppress_output=True):
+            sys.stderr.write("[%s] error: already running\n" % args.manager)
+            return
+        settings = config['managers'][args.manager]
+        project = settings['project_root']
+        if not check_exists_remote(settings, settings['project_root']):
+            sys.stderr.write("[%s] error: not deployed to project root %s yet\n" % (args.manager, project))
+            return
+        if tmux_and_start(settings, args):
+            print "[%s] startup successful" % args.manager
+        else:
+            sys.stderr.write("[%s] something went wrong on start!" % args.manager)
+            return
 
 def handle_shutdown(cmd_json, args, parser, config):
     if args.manager in all_patts:
@@ -298,6 +333,9 @@ def handle_shutdown(cmd_json, args, parser, config):
     elif args.manager == 'any':
         parser.error('shutdown requires specific manager or all')
     else:
+        if not handle_check_running(cmd_json, args, parser, config, suppress_output=True):
+            sys.stderr.write("[%s] error: not running; cannot shutdown\n" % args.manager)
+            return
         status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
         num_jobs_running = int(status['jobs_running'])
         num_jobs_queued = int(status['num_jobs_queued'])
@@ -307,7 +345,13 @@ def handle_shutdown(cmd_json, args, parser, config):
             return
         else:
             cmd_json['type'] = 'shutdown'
-            return run_command(cmd_json, args, parser, config)
+            settings = config['managers'][args.manager]
+            ret = run_command(cmd_json, args, parser, config)
+            # TODO: there may be a race here
+            subprocess.call(build_ssh_command(settings,
+                "export PATH=\"$PATH\":/usr/local/bin; " + \
+                        "tmux kill-session -t %s;" % args.manager), shell=True)
+            return ret
 
 
 def main(args):
@@ -330,10 +374,11 @@ if __name__=="__main__":
             'force': handle_force,
             'upload-data': handle_upload_data,
             'check-running': handle_check_running,
+            'start': handle_start,
             'shutdown': handle_shutdown,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), upload-data (upload data to managers), check-running (self-explanatory), or shutdown")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), upload-data (upload data to managers), check-running (self-explanatory), start, or shutdown")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
