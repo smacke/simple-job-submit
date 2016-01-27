@@ -1,3 +1,4 @@
+- figure out why SIGCHLD handler not decrementing running jobs; maybe impl by tracking PIDs of children
 - startup states success even if it failed. fix this
 - have stat show currently-running jobs in addition to those queued (hard since we cannot tell who finishes)
 - have managers flush queues to log on keyboard interrupt (right now queues are lost)
