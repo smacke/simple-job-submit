@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import os
 import sys
 import yaml
 import subprocess
@@ -11,11 +12,8 @@ import re
 errors = {'eexists': 2}
 all_patts = ['*', 'all']
 
-def build_remote_command(cmd_type, port_flag, manager_settings, command):
-    port = 22
-    if port in manager_settings:
-        port = int(manager_settings['port'])
-    remote_command = "%s %s %d %s" % (cmd_type, port_flag, port, command)
+def build_remote_command(cmd_type, manager_settings, command):
+    remote_command = "%s %s" % (cmd_type, command)
     if 'password' in manager_settings:
         remote_command = ('sshpass -p %s ' % manager_settings['password']) + remote_command
     return remote_command
@@ -26,15 +24,45 @@ def get_host_from_settings(manager_settings):
         host = settings['user'] + '@' + host
     return host
 
-def build_ssh_command(manager_settings, command):
-    host = get_host_from_settings(manager_settings)
-    command = "%s '%s'" % (host, command)
-    return build_remote_command("ssh -A", "-p", manager_settings, command)
+def get_port_from_settings(manager_settings):
+    if 'port' in manager_settings:
+        return int(manager_settings['port'])
+    else:
+        return None
 
-def build_scp_command(manager_settings, from_file, to_file):
+def build_ssh_command(manager_settings, command, quiet=False):
     host = get_host_from_settings(manager_settings)
+    port = get_port_from_settings(manager_settings)
+    command = "%s '%s'" % (host, command)
+    ssh = "ssh -A"
+    if port is not None:
+        ssh += (" -p %d" % port)
+    if quiet:
+        ssh += " -q"
+    return build_remote_command(ssh, manager_settings, command)
+
+def build_scp_command(manager_settings, from_file, to_file, recursive=False, quiet=False):
+    host = get_host_from_settings(manager_settings)
+    port = get_port_from_settings(manager_settings)
     command = "%s %s:%s" % (from_file, host, to_file)
-    return build_remote_command("scp", "-P", manager_settings, command)
+    scp = "scp"
+    if recursive:
+        scp += " -r"
+    if port is not None:
+        scp += (" -P %d" % port)
+    if quiet:
+        scp += " -q"
+    return build_remote_command(scp, manager_settings, command)
+
+def build_rsync_command(manager_settings, from_file, to_file):
+    host = get_host_from_settings(manager_settings)
+    port = get_port_from_settings(manager_settings)
+    command = "%s %s:%s" % (from_file.strip('/'), host, to_file)
+    rsync = "rsync -rvz"
+    if port is not None:
+        rsync += (" -e 'ssh -p %d'" % port)
+    rsync += " --progress"
+    return build_remote_command(rsync, manager_settings, command)
 
 def run_command(cmd_json, args, parser, config, suppress_output=False):
     if args.manager in all_patts:
@@ -205,9 +233,11 @@ def handle_force(cmd_json, args, parser, config):
         for manager in config['managers']:
             args.manager = manager
             handle_force(cmd_json, args, parser, config)
+        return
     elif args.manager == 'any':
         parser.error('force requires specific manager or all')
     else:
+        print "[%s] calling command: %s" % (args.manager, args.cmd)
         settings = config['managers'][args.manager]
 #        if is_running(args.manager, settings):
 #            status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
@@ -218,6 +248,38 @@ def handle_force(cmd_json, args, parser, config):
 #                return
         subprocess.call(build_ssh_command(settings,
                 "cd %s; %s" % (settings['project_root'], args.cmd), shell=True))
+
+def handle_upload_data(cmd_json, args, parser, config):
+    dataset = args.dataset
+    if args.manager in all_patts:
+        for manager in config['managers']:
+            args.manager = manager
+            args.dataset = dataset # since this gets fiddled with
+            handle_upload_data(cmd_json, args, parser, config)
+        return
+    elif dataset in all_patts:
+        for dataset in config['deployment']['datasets']:
+            args.dataset = dataset
+            handle_upload_data(cmd_json, args, parser, config)
+    else:
+        print "[%s] uploading %s data..." % (args.manager, args.dataset)
+        settings = config['managers'][args.manager]
+        datapath = config['managers'][args.manager]['datadir']
+        upload_dataset = config['deployment']['datasets'][args.dataset]
+        check_path = os.path.join(datapath, os.path.basename(upload_dataset))
+        try:
+            if subprocess.call(build_ssh_command(settings,
+                "[ -f %s -o -d %s ]" % (check_path, check_path), quiet=True), shell=True) == 0:
+                sys.stderr.write("[%s] warning: path %s already exists, skipping\n" % (args.manager, check_path))
+                return
+        except OSError as e:
+            raise e
+            # this is good, it means we didn't see the file there
+            pass
+        if subprocess.call(build_rsync_command(settings, upload_dataset, datapath), shell=True) != 0:
+            sys.stderr.write("[%s] warning: something went wrong calling rsync to path %s" % (args.manager, datapath))
+            return
+
 
 def handle_shutdown(cmd_json, args, parser, config):
     if args.manager in all_patts:
@@ -257,10 +319,11 @@ if __name__=="__main__":
             'cancel': handle_cancel,
             'deploy': handle_deploy,
             'force': handle_force,
+            'upload-data': handle_upload_data,
             'shutdown': handle_shutdown,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), or shutdown")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), upload-data (upload data to managers), or shutdown")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")
@@ -269,5 +332,6 @@ if __name__=="__main__":
     parser.add_argument('--max-jobs-running', dest='max_jobs', type=int, default=None, help="if type is configure, new maximum # of jobs running")
     parser.add_argument('--git', dest='git', default=False, action='store_true', help="whether to do a 'git pull' before executing commands")
     parser.add_argument('--make', dest='make', default=False, action='store_true', help="whether to do a 'make' before executing commands")
+    parser.add_argument('--dataset', dest='dataset', default='all', help="which dataset(s) to copy to specified manager")
     args = parser.parse_args()
     main(args)

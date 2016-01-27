@@ -2,7 +2,6 @@
 - be able to request manager startup if not already running (will assume tmux window exists)
 - have stat show currently-running jobs in addition to those queued
 - have managers flush queues to log on keyboard interrupt (right now queues are lost)
-- impl copying of datasets to remotes
 - implement max time to block on submission pipe
 - fix bug where squoted commands (e.g. in file) fail spectacularly
 - 'git pull' executed by job manager fails because ssh agent expires after logout
