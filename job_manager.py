@@ -74,7 +74,7 @@ def run_jobs():
             jobs_cv.release()
             continue
 
-        job = jobs[0]
+        job = jobs_q[0]
         jobs_q = jobs_q[1:]
         jobs_cv.release()
 
