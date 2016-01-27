@@ -88,7 +88,7 @@ def handle_submit_job(command):
     global current_job_id
     jobs_cv.acquire()
     jid = current_job_id
-    jobs.append({'job': command['run'], 'job_id': jid})
+    jobs_q.append({'job': command['run'], 'job_id': jid})
     current_job_id += 1
     jobs_cv.notify()
     jobs_cv.release()

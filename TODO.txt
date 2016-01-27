@@ -1,3 +1,4 @@
+- startup states success even if it failed. fix this
 - have stat show currently-running jobs in addition to those queued (hard since we cannot tell who finishes)
 - have managers flush queues to log on keyboard interrupt (right now queues are lost)
 - implement max time to block on submission pipe

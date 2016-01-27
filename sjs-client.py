@@ -119,12 +119,12 @@ def handle_job_submit_any(cmd_json, args, parser, config):
         args.manager = manager
         status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
         if status['code'] > 0:
-            sys.stderr.write("[%s] warning: manager had error during stating: %s" % (args.manager, status['message']))
+            sys.stderr.write("[%s] warning: manager had error during stating: %s\n" % (args.manager, status['message']))
             continue
         num_slots = status['max_jobs_running'] - status['jobs_running']
         all_managers_0_max = all_managers_0_max and status['max_jobs_running'] <= 0
         if num_slots < 0:
-            sys.sdterr.write("[%s] warning: manager running more jobs than has slots" % manager)
+            sys.sdterr.write("[%s] warning: manager running more jobs than has slots\n" % manager)
             continue
         num_queued = status['num_jobs_queued']
         num_slots_num_queued = (-num_slots, num_queued)
@@ -223,17 +223,20 @@ def handle_deploy(cmd_json, args, parser, config):
     else:
         settings = config['managers'][args.manager]
         if check_exists_remote(settings, settings['project_root']):
-            sys.stderr.write("[%s] error: already deployed" % args.manager)
-            return
-        subprocess.call(build_ssh_command(settings,
+            sys.stderr.write("[%s] warning: already deployed. will update job manager unless running\n" % args.manager)
+        else:
+            subprocess.call(build_ssh_command(settings,
                 "git clone %s %s" % (config['deployment']['project_url'],
                     settings['project_root'])), shell=True)
+        if handle_check_running(cmd_json, args, parser, config, suppress_output=True):
+            sys.stderr.write("[%s] error: already deployed, already running\n" % args.manager)
+            return
         subprocess.call(build_scp_command(settings,
             './job_manager.py', settings['project_root']), shell=True)
         if tmux_and_start(settings, args):
             print "[%s] startup successful" % args.manager
         else:
-            sys.stderr.write("[%s] something went wrong on start!" % args.manager)
+            sys.stderr.write("[%s] something went wrong on start!\n" % args.manager)
             return
 
 def handle_check_running(cmd_json, args, parser, config, suppress_output=False):
@@ -346,6 +349,7 @@ def handle_shutdown(cmd_json, args, parser, config):
         else:
             cmd_json['type'] = 'shutdown'
             settings = config['managers'][args.manager]
+            print ("[%s]" % args.manager),
             ret = run_command(cmd_json, args, parser, config)
             # TODO: there may be a race here
             subprocess.call(build_ssh_command(settings,
