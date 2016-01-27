@@ -111,7 +111,7 @@ rm %s # clear the port for later use
         else:
             raise Exception("Trying to run command, got error code %d" % ret)
 
-def handle_job_submit_any(cmd_json, args, parser, config):
+def handle_submit_job_any(cmd_json, args, parser, config):
     best_manager = None
     most_slots_least_queued = (0, float('inf'))
     all_managers_0_max = True
@@ -141,7 +141,7 @@ def handle_job_submit_any(cmd_json, args, parser, config):
 
     args.manager = best_manager
     print ('[%s]' % args.manager),
-    return handle_job_submit_nocheck_status(cmd_json, args, parser, config)
+    return handle_submit_job_nocheck_status(cmd_json, args, parser, config)
 
 def handle_submit_job_nocheck_status(cmd_json, args, parser, config):
     cmd_json['type'] = 'submit_job'
@@ -153,7 +153,12 @@ def handle_submit_job(cmd_json, args, parser, config):
     cmd_json['type'] = 'submit_job'
     # this function assumes cmd_json['run'] already set
 
-    if args.manager == 'any':
+    if args.manager in all_patts:
+        for manager in config['managers']:
+            args.manager = manager
+            print ("[%s]" % manager),
+            handle_submit_job(cmd_json, args, parser, config)
+    elif args.manager == 'any':
         return handle_submit_job_any(cmd_json, args, parser, config)
     else:
         status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
