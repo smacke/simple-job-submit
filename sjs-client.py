@@ -279,7 +279,7 @@ def handle_force(cmd_json, args, parser, config):
             num_jobs_running = int(status['jobs_running'])
             if num_jobs_running > 0:
                 sys.stderr.write("[%s] %d job(s) running, refuse force\n" % \
-                        (args.manager, num_jobs_running, num_jobs_queued))
+                        (args.manager, num_jobs_running))
                 return
         subprocess.call(build_ssh_command(settings,
                 "cd %s; %s" % (settings['project_root'], args.cmd)), shell=True)
