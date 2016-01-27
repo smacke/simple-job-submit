@@ -1,4 +1,5 @@
 - be able to request manager startup if not already running (will assume tmux window exists)
+- shutdown should also exit tmux session
 - have stat show currently-running jobs in addition to those queued
 - have managers flush queues to log on keyboard interrupt (right now queues are lost)
 - implement max time to block on submission pipe
