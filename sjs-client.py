@@ -9,6 +9,7 @@ import argparse
 import re
 
 errors = {'eexists': 2}
+all_patts = ['*', 'all']
 
 def build_remote_command(cmd_type, port_flag, manager_settings, command):
     port = 22
@@ -36,7 +37,7 @@ def build_scp_command(manager_settings, from_file, to_file):
     return build_remote_command("scp", "-P", manager_settings, command)
 
 def run_command(cmd_json, args, parser, config, suppress_output=False):
-    if args.manager == 'all':
+    if args.manager in all_patts:
         for manager in config['managers']:
             args.manager = manager
             print ('[%s]' % args.manager),
@@ -163,17 +164,17 @@ def handle_cancel(cmd_json, args, parser, config):
     cmd_json['type'] = 'cancel'
     if args.jid_cancel is None:
         parser.error("need to specify job id to cancel")
-    if args.manager == 'any' or args.manager == 'all':
+    if args.manager == 'any' or args.manager in all_patts:
         # TODO: make job ids unique across all managers, then maybe 'any' makes sense
         parser.error("job cancellation requires specific manager")
-    if args.jid_cancel != 'all':
+    if args.jid_cancel not in all_patts:
         args.jid_cancel = int(args.jid_cancel)
     cmd_json['job_to_cancel'] = args.jid_cancel
     return run_command(cmd_json, args, parser, config)
 
 def handle_deploy(cmd_json, args, parser, config):
     # TODO: this one is different; maybe should have different method signature
-    if args.manager == 'all':
+    if args.manager in all_patts:
         for manager in config['managers']:
             args.manager = manager
             handle_deploy(cmd_json, args, parser, config)
@@ -187,14 +188,39 @@ def handle_deploy(cmd_json, args, parser, config):
         subprocess.call(build_scp_command(settings,
             './job_manager.py', settings['project_root']), shell=True)
         subprocess.call(build_ssh_command(settings,
-            ("cd %s; export PATH=\"$PATH\":/usr/local/bin; " + ("make; " if args.make else "") + \
+            ("cd %s; " + ("make; " if args.make else "") + \
                     "tmux new -s %s -d; tmux send -t %s:0 " + \
                     "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
             (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
             shell=True)
 
+def is_running(manager, settings):
+    # TODO: impl me
+    pass
+
+def handle_force(cmd_json, args, parser, config):
+    if args.cmd is None:
+        parser.error("command type %s requires cmd" % args.type)
+    elif args.manager in all_patts:
+        for manager in config['managers']:
+            args.manager = manager
+            handle_force(cmd_json, args, parser, config)
+    elif args.manager == 'any':
+        parser.error('force requires specific manager or all')
+    else:
+        settings = config['managers'][args.manager]
+#        if is_running(args.manager, settings):
+#            status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
+#            num_jobs_running = int(status['jobs_running'])
+#            if num_jobs_running > 0:
+#                sys.stderr.write("[%s] %d job(s) running, refuse force\n" % \
+#                        (args.manager, num_jobs_running, num_jobs_queued))
+#                return
+        subprocess.call(build_ssh_command(settings,
+                "cd %s; %s" % (settings['project_root'], args.cmd), shell=True))
+
 def handle_shutdown(cmd_json, args, parser, config):
-    if args.manager == 'all':
+    if args.manager in all_patts:
         for manager in config['managers']:
             args.manager = manager
             handle_shutdown(cmd_json, args, parser, config)
@@ -230,10 +256,11 @@ if __name__=="__main__":
             'configure': handle_configure,
             'cancel': handle_cancel,
             'deploy': handle_deploy,
+            'force': handle_force,
             'shutdown': handle_shutdown,
             }
     parser = argparse.ArgumentParser(description="Client for talking to job managers.")
-    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), or shutdown")
+    parser.add_argument('type', help="type of command to run -- either submit (to submit job), stat (stat current jobs), configure (set manager parameters), cancel (cancel jobs), deploy (deploy job managers from config), force (run command immediately), or shutdown")
     parser.add_argument('manager', help="which job manager to run command on. special are all, any (any tries to find non-saturated manager)")
     parser.add_argument('--config', dest='config', default='config.yaml', help="yaml config file with job manager locations. see example for format")
     parser.add_argument('--command', dest='cmd', default=None, help="if type is submit, the command to run as a job")

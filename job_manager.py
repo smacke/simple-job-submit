@@ -10,6 +10,8 @@ import signal
 import json
 import argparse
 
+all_patts = ['all', '*']
+
 pipe_name = 'jobs.pipe'
 max_jobs = 4
 jobs_running = 0
@@ -127,7 +129,7 @@ def handle_cancel(command):
     global jobs
     cancel_id = command['job_to_cancel']
     jobs_cv.acquire()
-    if cancel_id == 'all':
+    if cancel_id in all_patts:
         success = True
         jobs_cancelled = jobs
         jobs = []
@@ -213,11 +215,7 @@ def main(args):
     pipe_name = args.pipe_name
     max_jobs = args.max_jobs
     signal.signal(signal.SIGCHLD, sigchld_handler)
-    try:
-        os.mkfifo(pipe_name)
-    except Exception:
-        sys.stderr.write("Warning: pipe %s already exists.\n" % pipe_name)
-        pass
+    os.mkfifo(pipe_name) # if this raises an exception, something is wrong and we should die
 
     command_thread = threading.Thread(target=handle_commands)
     command_thread.daemon=True
@@ -227,7 +225,12 @@ def main(args):
     job_thread.daemon=True
     job_thread.start()
 
-    receive_commands_forever()
+    try:
+        receive_commands_forever()
+    except KeyboardInterrupt:
+        # TODO: should flush job queue to disk, this kills it with prejudice
+        pass
+    os.remove(args.pipe_name) # this signals that no manager is running
 
 
 if __name__=="__main__":
