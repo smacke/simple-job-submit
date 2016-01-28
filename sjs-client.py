@@ -78,6 +78,9 @@ def run_command(cmd_json, args, parser, config, suppress_output=False):
     elif args.manager == 'any':
         raise Exception("'any' should be reserved for job-submission-handling logic; this exception should be unreachable")
 
+    if not handle_check_running(cmd_json, args, parser, config, suppress_output=True):
+        raise Exception("[%s] error: not running!" % args.manager)
+
     settings = config['managers'][args.manager]
     template = \
 """
@@ -341,9 +344,6 @@ def handle_shutdown(cmd_json, args, parser, config):
     elif args.manager == 'any':
         parser.error('shutdown requires specific manager or all')
     else:
-        if not handle_check_running(cmd_json, args, parser, config, suppress_output=True):
-            sys.stderr.write("[%s] error: not running; cannot shutdown\n" % args.manager)
-            return
         status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
         num_jobs_running = int(status['jobs_running'])
         num_jobs_queued = int(status['num_jobs_queued'])
