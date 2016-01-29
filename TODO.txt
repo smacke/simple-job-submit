@@ -4,6 +4,9 @@
   idempotent as we're only setting the bit in some mask, so we only execute the
   handler once even though should be executing it multiple times...)
 - have stat show currently-running jobs in addition to those queued (hard since we cannot tell who finishes)
+- allow detach child process (so it doesn't die if we want to kill job manager but keep child running)
+- wrap remote calls in retries, retry MAX_RETRIES times before giving up
+- ability to append to PATH by reading both global and per-manager setting from config
 - startup states success even if it failed. fix this
 - have managers flush queues to log on keyboard interrupt (right now queues are lost)
 - implement max time to block on submission pipe
@@ -12,3 +15,6 @@
 - adaptive max-jobs-running based on available cpu resources
 - periodic or on-demand flushing of jobs queued to a log
 - better logging in general
+- ability to transfer jobs between managers, rebalance
+- ability to put jobs to sleep and set schedules (e.g. allow for fail fast if code is broken
+  by running for, say, 10 minutes, then sleep, then until finish)

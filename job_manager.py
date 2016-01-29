@@ -12,15 +12,15 @@ import argparse
 
 all_patts = ['all', '*']
 
+# TODO: all this stuff should be wrapped in some kind of state object and passed around
 pipe_name = 'jobs.pipe'
 max_jobs = 4
-jobs_running = 0
+jobs_running = 0 # TODO: rename to num_jobs_running
 
 jobs_q = []
 jobs_cv = threading.Condition(threading.Lock())
 
-# TODO: how to use this? we don't get job id when job finishes
-running_q = []
+running_jobs_table = {} # map pid -> (job_id, command)
 running_cv = threading.Condition(threading.Lock())
 
 current_job_id = 0
@@ -28,32 +28,45 @@ commands_q = Queue.Queue()
 
 saturated = threading.Condition(threading.Lock())
 
+# ref: http://stackoverflow.com/questions/568271/how-to-check-if-there-exists-a-process-with-a-given-pid
+def check_pid(pid):
+    """ Check For the existence of a unix pid. """
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    else:
+        return True
+
 def sigchld_handler(signum, frame):
     global jobs_running
     # this means that a subprocess executed,
     # so we decrement the jobs_running variable
+    todelete = []
     saturated.acquire()
-    jobs_running -= 1
+    # this avoids race where multiple SIGCHLDs are delivered --
+    # since we only execute one handler for potentially multiple
+    # signals, we need to check all running jobs to see whether
+    # they are still around
+    for pid in running_jobs_table:
+        if not check_pid(pid):
+            todelete.add(pid)
+    for pid in todelete:
+        del running_jobs_table[pid]
+    jobs_running = len(running_jobs_table)
     saturated.notify()
     saturated.release()
 
 def prehooks(cmd_json):
-    global jobs_running
-
     if cmd_json['git']:
-        saturated.acquire()
-        jobs_running += 1 # need to increment this because sigchild handler will dec
-        saturated.release()
         subprocess.call(shlex.split('git pull'))
 
     if cmd_json['make']:
-        saturated.acquire()
-        jobs_running += 1 # need to increment this because sigchild handler will dec
-        saturated.release()
         subprocess.call(['make'])
 
 def run_jobs():
     global jobs_running
+    global running_jobs_table
     global jobs_q
     while True:
         saturated.acquire()
@@ -61,7 +74,7 @@ def run_jobs():
             saturated.wait()
         saturated.release()
         # wait until we actually get a job off the queue
-        # before we incrmenet jobs_running
+        # before we increment jobs_running
 
         jobs_cv.acquire()
         while len(jobs_q)==0:
@@ -79,10 +92,12 @@ def run_jobs():
         jobs_cv.release()
 
         saturated.acquire()
-        jobs_running += 1
+        proc = subprocess.Popen(job['job'], shell=True)
+        running_jobs_table[proc.pid] = job
+        jobs_running = len(running_jobs_table)
         saturated.release()
+        time.sleep(.1) # sleep a bit in case jobs have sequential dependencies
 
-        subprocess.Popen(job['job'], shell=True)
 
 def handle_submit_job(command):
     global current_job_id
@@ -99,13 +114,19 @@ def handle_submit_job(command):
 def handle_stat(command):
     global max_jobs
     global jobs_running
+    global running_jobs_table
     global jobs_q
     jobs_cv.acquire()
     queued = str(jobs_q)
     num_queued = len(jobs_q)
+    # prevents jobs from showing up in both job queue and as running
+    saturated.acquire()
+    jobs_running_list = list(running_jobs_table.values())
+    saturated.release()
     jobs_cv.release()
-    running = jobs_running
-    ret = {'code': 0, 'status': 'OK', 'jobs_running': running, 'num_jobs_queued': num_queued,
+    num_running = jobs_running
+    ret = {'code': 0, 'status': 'OK', 'jobs_running': jobs_running_list,
+            'num_jobs_running': num_running, 'num_jobs_queued': num_queued,
             'jobs_queued': queued, 'max_jobs_running': max_jobs}
     with open(command['port'], 'w') as f:
         f.write(json.dumps(ret))
@@ -164,7 +185,7 @@ def handle_shutdown(command):
     jobs_cv.release()
     if jobs_running > 0 or jobs_queued > 0:
         do_shutdown = False
-        ret = {'code': 4, 'status': 'error', 'jobs_running': jobs_running,
+        ret = {'code': 4, 'status': 'error', 'num_jobs_running': jobs_running,
                 'num_jobs_queued': jobs_queued,
                 'message': 'refusing shutdown (jobs still running or in queue)'}
     else:
@@ -211,6 +232,7 @@ def receive_commands_forever():
                             commands_q.put(command)
 
         except IOError as e:
+            # TODO: this should technically check EINTR
             # restart the system call after handling SIGCHILD
             pass
 

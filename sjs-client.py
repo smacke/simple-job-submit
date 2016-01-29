@@ -124,7 +124,7 @@ def handle_submit_job_any(cmd_json, args, parser, config):
         if status['code'] > 0:
             sys.stderr.write("[%s] warning: manager had error during stating: %s\n" % (args.manager, status['message']))
             continue
-        num_slots = status['max_jobs_running'] - status['jobs_running']
+        num_slots = status['max_jobs_running'] - status['num_jobs_running']
         all_managers_0_max = all_managers_0_max and status['max_jobs_running'] <= 0
         if num_slots < 0:
             sys.sdterr.write("[%s] warning: manager running more jobs than has slots\n" % manager)
@@ -279,7 +279,7 @@ def handle_force(cmd_json, args, parser, config):
         settings = config['managers'][args.manager]
         if handle_check_running(cmd_json, args, parser, config, suppress_output=True):
             status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
-            num_jobs_running = int(status['jobs_running'])
+            num_jobs_running = int(status['num_jobs_running'])
             if num_jobs_running > 0:
                 sys.stderr.write("[%s] %d job(s) running, refuse force\n" % \
                         (args.manager, num_jobs_running))
@@ -345,7 +345,7 @@ def handle_shutdown(cmd_json, args, parser, config):
         parser.error('shutdown requires specific manager or all')
     else:
         status = handle_stat(cmd_json, args, parser, config, suppress_output=True)
-        num_jobs_running = int(status['jobs_running'])
+        num_jobs_running = int(status['num_jobs_running'])
         num_jobs_queued = int(status['num_jobs_queued'])
         if num_jobs_running > 0 or num_jobs_queued > 0:
             sys.stderr.write("[%s] %d job(s) running and %d job(s) queued, refuse shutdown\n" % \
