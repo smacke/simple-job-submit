@@ -8,9 +8,29 @@ import json
 import itertools
 import argparse
 import re
+import socket
+import urllib2
+import time
 
 errors = {'eexists': 2}
 all_patts = ['*', 'all']
+
+
+def network_retry(func):
+    MAX_RETRIES=5
+    def inner_func(*args, **kwargs):
+        for i in xrange(MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except (socket.error, urllib2.URLError) as e:
+                if i < MAX_RETRIES-1:
+                    # Exponential + Random Backoff
+                    wait_time = pow(2.0, i) * (1.0 + random.random()) 
+                    sys.stderr.write("warning: network_retry; attempt: %d; backoff: %f, msg: %s\n" % (i, wait_time, str(e)))
+                    time.sleep(wait_time)
+                else:
+                    raise e
+    return inner_func
 
 def build_remote_command(cmd_type, manager_settings, command):
     remote_command = "%s %s" % (cmd_type, command)
@@ -41,7 +61,13 @@ def build_ssh_command(manager_settings, command, quiet=False):
         ssh += " -q"
     return build_remote_command(ssh, manager_settings, command)
 
-def build_scp_command(manager_settings, from_file, to_file, recursive=False, quiet=False):
+@network_retry
+def run_ssh_command(manager_settings, command, quiet=False):
+    return subprocess.call(build_ssh_command(manager_settings, command, quiet),
+            shell=True)
+
+def build_scp_command(manager_settings, from_file, to_file,
+        recursive=False, quiet=False):
     host = get_host_from_settings(manager_settings)
     port = get_port_from_settings(manager_settings)
     command = "%s %s:%s" % (from_file, host, to_file)
@@ -54,6 +80,12 @@ def build_scp_command(manager_settings, from_file, to_file, recursive=False, qui
         scp += " -q"
     return build_remote_command(scp, manager_settings, command)
 
+@network_retry
+def run_scp_command(manager_settings, from_file, to_file,
+        recursive=False, quiet=False):
+    return subprocess.call(build_scp_command(manager_settings,
+        from_file, to_file, recursive, quiet), shell=True)
+
 def build_rsync_command(manager_settings, from_file, to_file):
     host = get_host_from_settings(manager_settings)
     port = get_port_from_settings(manager_settings)
@@ -64,10 +96,16 @@ def build_rsync_command(manager_settings, from_file, to_file):
     rsync += " --progress"
     return build_remote_command(rsync, manager_settings, command)
 
-def check_exists_remote(settings, check_path, check_flag="-e"):
-    return subprocess.call(build_ssh_command(settings, "[ %s %s ]" % (check_flag, check_path),
-        quiet=True), shell=True) == 0
+@network_retry
+def run_rsync_command(manager_settings, from_file, to_file):
+    return subprocess.call(build_rsync_command(manager_settings,
+        from_file, to_file), shell=True)
 
+def check_exists_remote(settings, check_path, check_flag="-e"):
+    return run_ssh_command(settings, "[ %s %s ]" % (check_flag, check_path),
+            quiet=True) == 0
+
+@network_retry
 def run_command(cmd_json, args, parser, config, suppress_output=False):
     if args.manager in all_patts:
         for manager in config['managers']:
@@ -213,12 +251,12 @@ def handle_cancel(cmd_json, args, parser, config):
     return run_command(cmd_json, args, parser, config)
 
 def tmux_and_start(settings, args):
-    return subprocess.call(build_ssh_command(settings,
+    return run_ssh_command(settings,
         ("export PATH=\"$PATH\":/usr/local/bin; cd %s; " + ("make; " if args.make else "") + \
                 "tmux new -s %s -d; tmux send -t %s:0 " + \
                 "\"./job_manager.py --max-jobs-running %d\" ENTER;") % \
-        (settings['project_root'], args.manager, args.manager, settings['default_max_jobs'])),
-        shell=True) == 0
+        (settings['project_root'], args.manager, 
+            args.manager, settings['default_max_jobs'])) == 0
 
 def handle_deploy(cmd_json, args, parser, config):
     # TODO: this one is different; maybe should have different method signature
@@ -233,14 +271,14 @@ def handle_deploy(cmd_json, args, parser, config):
         if check_exists_remote(settings, settings['project_root']):
             sys.stderr.write("[%s] warning: already deployed. will update job manager unless running\n" % args.manager)
         else:
-            subprocess.call(build_ssh_command(settings,
+            run_ssh_command(settings,
                 "git clone %s %s" % (config['deployment']['project_url'],
-                    settings['project_root'])), shell=True)
+                    settings['project_root']))
         if handle_check_running(cmd_json, args, parser, config, suppress_output=True):
             sys.stderr.write("[%s] error: already deployed, already running\n" % args.manager)
             return
-        subprocess.call(build_scp_command(settings,
-            './job_manager.py', settings['project_root']), shell=True)
+        run_scp_command(settings,
+            './job_manager.py', settings['project_root'])
         if tmux_and_start(settings, args):
             print "[%s] startup successful" % args.manager
         else:
@@ -284,8 +322,8 @@ def handle_force(cmd_json, args, parser, config):
                 sys.stderr.write("[%s] %d job(s) running, refuse force\n" % \
                         (args.manager, num_jobs_running))
                 return
-        subprocess.call(build_ssh_command(settings,
-                "cd %s; %s" % (settings['project_root'], args.cmd)), shell=True)
+        run_ssh_command(settings,
+                "cd %s; %s" % (settings['project_root'], args.cmd))
 
 def handle_upload_data(cmd_json, args, parser, config):
     dataset = args.dataset
@@ -310,7 +348,7 @@ def handle_upload_data(cmd_json, args, parser, config):
         if check_exists_remote(settings, check_path):
             sys.stderr.write("[%s] warning: path %s already exists, skipping\n" % (args.manager, check_path))
             return
-        if subprocess.call(build_rsync_command(settings, upload_dataset, datapath), shell=True) != 0:
+        if run_rsync_command(settings, upload_dataset, datapath) != 0:
             sys.stderr.write("[%s] warning: something went wrong calling rsync to path %s" % (args.manager, datapath))
             return
 
@@ -357,9 +395,9 @@ def handle_shutdown(cmd_json, args, parser, config):
             print ("[%s]" % args.manager),
             ret = run_command(cmd_json, args, parser, config)
             # TODO: there may be a race here
-            subprocess.call(build_ssh_command(settings,
+            run_ssh_command(settings,
                 "export PATH=\"$PATH\":/usr/local/bin; " + \
-                        "tmux kill-session -t %s;" % args.manager), shell=True)
+                        "tmux kill-session -t %s;" % args.manager)
             return ret
 
 
