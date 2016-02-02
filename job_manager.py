@@ -96,7 +96,7 @@ def run_jobs():
         running_jobs_table[proc.pid] = job
         jobs_running = len(running_jobs_table)
         saturated.release()
-        time.sleep(.1) # sleep a bit in case jobs have sequential dependencies
+        time.sleep(1.) # sleep a bit in case jobs have sequential dependencies
 
 
 def handle_submit_job(command):
